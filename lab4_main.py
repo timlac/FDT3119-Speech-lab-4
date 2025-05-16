@@ -9,7 +9,9 @@ import torch.optim as optim
 import numpy as np
 import argparse
 
-from lab4_proto import strToInt, intToStr, dataProcessing, test_audio_transform, train_audio_transform
+from torch.utils.tensorboard import SummaryWriter
+
+from lab4_proto import strToInt, intToStr, dataProcessing, test_audio_transform, train_audio_transform, greedyDecoder, levenshteinDistance
 
 '''
 HYPERPARAMETERS
@@ -131,7 +133,7 @@ class SpeechRecognitionModel(nn.Module):
 '''
 ACCURACY MEASURES
 '''
-def wer(reference, hypothesis, ignore_case=False, delimiter=' '):
+def wer(reference, hypothesis, ignore_case=False, delimiter='_'):
 	if ignore_case == True:
 		reference = reference.lower()
 		hypothesis = hypothesis.lower()
@@ -189,11 +191,14 @@ def train(model, device, train_loader, criterion, optimizer, epoch):
 		loss.backward()
 		optimizer.step()
 
+		# ✅ Log to TensorBoard
+		global_step = epoch * len(train_loader) + batch_idx
+		writer.add_scalar('Loss/train', loss.item(), global_step)
+
 		if batch_idx % 100 == 0 or batch_idx == data_len:
 			print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
 				epoch, batch_idx * len(spectrograms), data_len,
 				100. * batch_idx / len(train_loader), loss.item()))
-			break
 
 
 def test(model, device, test_loader, criterion, epoch):
@@ -203,6 +208,7 @@ def test(model, device, test_loader, criterion, epoch):
 	test_cer, test_wer = [], []
 	with torch.no_grad():
 		for I, _data in enumerate(test_loader):
+			print('Batch:',I)
 			spectrograms, labels, input_lengths, label_lengths = _data 
 			spectrograms, labels = spectrograms.to(device), labels.to(device)
 
@@ -218,19 +224,23 @@ def test(model, device, test_loader, criterion, epoch):
 			for i in range(len(labels)):
 				decoded_targets.append(intToStr(labels[i][:label_lengths[i]].tolist()))
 
-			print(decoded_targets)
-
 			# get predicted text
 			decoded_preds = greedyDecoder(output)
 
 			# calculate accuracy
 			for j in range(len(decoded_preds)):
-				test_cer.append(cer(decoded_targets[j], decoded_preds[j]))
-				test_wer.append(wer(decoded_targets[j], decoded_preds[j]))
+				decoded_target_str = "".join(decoded_targets[j])
+				decoded_pred_str = "".join(decoded_preds[j])
+				test_cer.append(cer(decoded_target_str, decoded_pred_str))
+				test_wer.append(wer(decoded_target_str, decoded_pred_str))
 
 	avg_cer = sum(test_cer)/len(test_cer)
 	avg_wer = sum(test_wer)/len(test_wer)
 	print('Test set: Average loss: {:.4f}, Average CER: {:4f} Average WER: {:.4f}\n'.format(test_loss, avg_cer, avg_wer))
+
+	writer.add_scalar('Loss/test', test_loss, epoch)
+	writer.add_scalar('CER/test', avg_cer, epoch)
+	writer.add_scalar('WER/test', avg_wer, epoch)
 
 '''
 MAIN PROGRAM
@@ -243,6 +253,7 @@ if __name__ == '__main__':
 
 	args = argparser.parse_args()
 
+	args = argparser.parse_args(['--mode', 'train'])
 	print('args:',args)
 
 	use_cuda = torch.cuda.is_available()
@@ -296,12 +307,14 @@ if __name__ == '__main__':
 	if args.model != '':
 		model.load_state_dict(torch.load(args.model))
 
+	writer = SummaryWriter(log_dir="runs/speech_recognition")
+
 	if args.mode == 'train':
 		print('Training…')
 		for epoch in range(hparams['epochs']):
 			train(model, device, train_loader, criterion, optimizer, epoch)
-			torch.save(model.state_dict(),'checkpoints/epoch-{}.pt'.format(epoch))
 			test(model, device, val_loader, criterion, epoch)
+			torch.save(model.state_dict(),'checkpoints/epoch-{}.pt'.format(epoch))
 
 	elif args.mode == 'test':
 		test(model, device, test_loader, criterion, -1)
@@ -315,3 +328,5 @@ if __name__ == '__main__':
 			text = greedyDecoder(output)
 			print('wavfile:',wavfile)
 			print('text:',text)
+
+	writer.close()

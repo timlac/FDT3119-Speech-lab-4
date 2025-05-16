@@ -136,13 +136,50 @@ def greedyDecoder(output, blank_label=28):
     returns:
         list of decoded strings
     '''
+    preds = output.argmax(dim=-1)
 
-def levenshteinDistance(ref,hyp):
-    '''
+    decoded_bath = []
+    for batch in preds:
+        prev = blank_label
+        decoded = []
+        for p in batch:
+            if p != prev and p != blank_label:
+                decoded.append(p)
+            prev = p
+        decoded_bath.append(intToStr(decoded))
+    return decoded_bath
+
+
+def levenshteinDistance(ref, hyp):
+    """
     calculate levenshtein distance (edit distance) between two sequences
     arguments:
         ref: reference sequence
         hyp: sequence to compare against the reference
     output:
         edit distance (int)
-    '''
+    """
+    # Initialize a matrix matrix with dimensions (len(sequence1) + 1) × (len(sequence2) + 1)
+    mat = np.zeros((len(ref) + 1, len(hyp) + 1), dtype=int)
+
+    # Fill the first row of matrix with values ranging from 0 to len(sequence2)
+    mat[0, :] = np.arange(len(hyp) + 1)
+
+    # Fill the first column of matrix with values ranging from 0 to len(sequence1)
+    mat[:, 0] = np.arange(len(ref) + 1)
+
+    for i in range(1, len(ref) + 1):
+        for j in range(1, len(hyp) + 1):
+            # If the characters are the same, no cost is incurred
+            if ref[i - 1] == hyp[j - 1]:
+                mat[i, j] = mat[i - 1, j - 1]
+            else:
+                # If the characters are different, calculate the cost of insertion, deletion, and substitution
+                insertion = mat[i, j - 1] + 1
+                deletion = mat[i - 1, j] + 1
+                substitution = mat[i - 1, j - 1] + 1
+
+                # Take the minimum of the three costs
+                mat[i, j] = min(insertion, deletion, substitution)
+    # The edit distance is the value in the bottom-right corner of the matrix
+    return mat[len(ref), len(hyp)]
