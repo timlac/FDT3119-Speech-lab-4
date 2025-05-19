@@ -1,5 +1,7 @@
 *.tar.gz
 *.pt
+!checkpoints/epoch-19.pt
+
 LibriSpeech/
 
 # Python general
