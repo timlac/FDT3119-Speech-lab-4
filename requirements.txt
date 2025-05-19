@@ -2,3 +2,7 @@ torch
 torchaudio
 numpy
 tensorboard
+
+pyctcdecode
+matplotlib
+ipython

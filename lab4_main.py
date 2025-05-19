@@ -8,6 +8,7 @@ import torch.utils.data as data
 import torch.optim as optim
 import numpy as np
 import argparse
+from pyctcdecode import build_ctcdecoder
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -133,7 +134,7 @@ class SpeechRecognitionModel(nn.Module):
 '''
 ACCURACY MEASURES
 '''
-def wer(reference, hypothesis, ignore_case=False, delimiter='_'):
+def wer(reference, hypothesis, ignore_case=False, delimiter=' '):
 	if ignore_case == True:
 		reference = reference.lower()
 		hypothesis = hypothesis.lower()
@@ -225,12 +226,33 @@ def test(model, device, test_loader, criterion, epoch):
 				decoded_targets.append(intToStr(labels[i][:label_lengths[i]].tolist()))
 
 			# get predicted text
-			decoded_preds = greedyDecoder(output)
+			# decoded_preds = greedyDecoder(output)
+			vocab = intToStr(list(range(28)))
+			vocab[1] = ' '
+
+			decoder = build_ctcdecoder(
+				vocab,
+				kenlm_model_path="wiki-interpolate.3gram.arpa",
+				alpha=0.5,
+				beta=1.0
+			)
+
+			print(f"Length of target: {len(decoded_targets)}")
+			# print(f"Length of prediction: {len(decoded_preds)}")
 
 			# calculate accuracy
-			for j in range(len(decoded_preds)):
-				decoded_target_str = "".join(decoded_targets[j])
-				decoded_pred_str = "".join(decoded_preds[j])
+			for j in range(len(decoded_targets)):
+
+
+
+				decoded_target_str = "".join(decoded_targets[j]).replace("_", " ")
+				# decoded_pred_str = "".join(decoded_preds[j])
+
+				decoded_pred_str = decoder.decode(output[j].cpu().detach().numpy())
+
+				print('decoded_target_str:',decoded_target_str)
+				print('decoded_pred_str:',decoded_pred_str)
+
 				test_cer.append(cer(decoded_target_str, decoded_pred_str))
 				test_wer.append(wer(decoded_target_str, decoded_pred_str))
 
@@ -253,7 +275,7 @@ if __name__ == '__main__':
 
 	args = argparser.parse_args()
 
-	args = argparser.parse_args(['--mode', 'train'])
+	args = argparser.parse_args(['--mode', 'test', '--model', 'checkpoints/epoch-19.pt'])
 	print('args:',args)
 
 	use_cuda = torch.cuda.is_available()

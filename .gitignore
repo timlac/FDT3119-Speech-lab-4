@@ -1,6 +1,9 @@
 *.tar.gz
 *.pt
 !checkpoints/epoch-19.pt
+voice.wav
+harvard.wav
+mono_harvard.wav
 
 LibriSpeech/
 
