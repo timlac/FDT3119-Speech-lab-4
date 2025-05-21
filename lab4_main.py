@@ -134,7 +134,7 @@ class SpeechRecognitionModel(nn.Module):
 '''
 ACCURACY MEASURES
 '''
-def wer(reference, hypothesis, ignore_case=False, delimiter=' '):
+def wer(reference, hypothesis, ignore_case=False, delimiter='_'):
 	if ignore_case == True:
 		reference = reference.lower()
 		hypothesis = hypothesis.lower()
@@ -202,7 +202,17 @@ def train(model, device, train_loader, criterion, optimizer, epoch):
 				100. * batch_idx / len(train_loader), loss.item()))
 
 
-def test(model, device, test_loader, criterion, epoch):
+def test(model, device, test_loader, criterion, epoch, alpha=0.6, beta=1.0):
+	vocab = intToStr(list(range(28)))
+	vocab[1] = ' '
+
+	# decoder = build_ctcdecoder(
+	# 	vocab,
+	# 	kenlm_model_path="wiki-interpolate.3gram.arpa",
+	# 	alpha=alpha,
+	# 	beta=beta
+	# )
+
 	print('\nevaluating…')
 	model.eval()
 	test_loss = 0
@@ -226,32 +236,16 @@ def test(model, device, test_loader, criterion, epoch):
 				decoded_targets.append(intToStr(labels[i][:label_lengths[i]].tolist()))
 
 			# get predicted text
-			# decoded_preds = greedyDecoder(output)
-			vocab = intToStr(list(range(28)))
-			vocab[1] = ' '
-
-			decoder = build_ctcdecoder(
-				vocab,
-				kenlm_model_path="wiki-interpolate.3gram.arpa",
-				alpha=0.5,
-				beta=1.0
-			)
-
-			print(f"Length of target: {len(decoded_targets)}")
-			# print(f"Length of prediction: {len(decoded_preds)}")
+			decoded_preds = greedyDecoder(output)
 
 			# calculate accuracy
 			for j in range(len(decoded_targets)):
 
+				# decoded_target_str = "".join(decoded_targets[j]).replace("_", " ")
+				# decoded_pred_str = decoder.decode(output[j].cpu().detach().numpy())
 
-
-				decoded_target_str = "".join(decoded_targets[j]).replace("_", " ")
-				# decoded_pred_str = "".join(decoded_preds[j])
-
-				decoded_pred_str = decoder.decode(output[j].cpu().detach().numpy())
-
-				print('decoded_target_str:',decoded_target_str)
-				print('decoded_pred_str:',decoded_pred_str)
+				decoded_target_str = "".join(decoded_targets[j])
+				decoded_pred_str = "".join(decoded_preds[j])
 
 				test_cer.append(cer(decoded_target_str, decoded_pred_str))
 				test_wer.append(wer(decoded_target_str, decoded_pred_str))
@@ -264,12 +258,14 @@ def test(model, device, test_loader, criterion, epoch):
 	writer.add_scalar('CER/test', avg_cer, epoch)
 	writer.add_scalar('WER/test', avg_wer, epoch)
 
+	return avg_wer
+
 '''
 MAIN PROGRAM
 '''
 if __name__ == '__main__':
 	argparser = argparse.ArgumentParser()
-	argparser.add_argument('--mode', help='train, test or recognize')
+	argparser.add_argument('--mode', help='train, test , search or recognize')
 	argparser.add_argument('--model', type=str, help='model to load', default='')
 	argparser.add_argument('wavfiles', nargs='*',help='wavfiles to recognize')
 
@@ -337,6 +333,36 @@ if __name__ == '__main__':
 			train(model, device, train_loader, criterion, optimizer, epoch)
 			test(model, device, val_loader, criterion, epoch)
 			torch.save(model.state_dict(),'checkpoints/epoch-{}.pt'.format(epoch))
+
+	elif args.mode == 'search':
+		print("Doing parameter search")
+
+		alphas = [0.6, 0.7, 0.8]
+		betas = [1.0, 2.0, 3.0]
+		data_grid = []
+		for a in alphas:
+			for b in betas:
+				print(f"Evaluating alpha={a}, beta={b}")
+				word_error_rate = test(model, device, test_loader, criterion, -1, alpha=a, beta=b)
+				data_grid.append((a, b, word_error_rate))
+
+				# Log to TensorBoard
+				writer.add_scalar(f'WER/alpha_{a}_beta_{b}', word_error_rate)
+
+				# Optionally, use add_hparams for dashboard of hyperparameter runs
+				writer.add_hparams(
+					{'alpha': a, 'beta': b},
+					{'WER': word_error_rate}
+				)
+
+		data_grid.sort(key=lambda x: x[2])
+		print("Best parameters:")
+		print("alpha:", data_grid[0][0])
+		print("beta:", data_grid[0][1])
+		print("WER:", data_grid[0][2])
+		print("All parameters:")
+		for a, b, wer in data_grid:
+			print("alpha:", a, "beta:", b, "WER:", wer)
 
 	elif args.mode == 'test':
 		test(model, device, test_loader, criterion, -1)
